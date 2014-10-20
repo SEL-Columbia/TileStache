@@ -70,9 +70,9 @@ configuration file as a dictionary:
   want to leave this at the default value of 256, but you can use a value of 512
   to create double-size, double-resolution tiles for high-density phone screens.
 - "jpeg options" is an optional dictionary of JPEG creation options, passed
-  through to PIL: http://www.pythonware.com/library/pil/handbook/format-jpeg.htm.
+  through to PIL: http://effbot.org/imagingbook/format-jpeg.htm.
 - "png options" is an optional dictionary of PNG creation options, passed
-  through to PIL: http://www.pythonware.com/library/pil/handbook/format-png.htm.
+  through to PIL: http://effbot.org/imagingbook/format-png.htm.
 
 The public-facing URL of a single tile for this layer might look like this:
 
@@ -139,7 +139,7 @@ from StringIO import StringIO
 from urlparse import urljoin
 from time import time
 
-from Pixels import load_palette, apply_palette
+from Pixels import load_palette, apply_palette, apply_palette256
 
 try:
     from PIL import Image
@@ -526,6 +526,10 @@ class Layer:
                 buff = StringIO()
                 bbox = (x, y, x + self.dim, y + self.dim)
                 subtile = surtile.crop(bbox)
+                if self.palette256:
+                    # this is where we have PIL optimally palette our image
+                    subtile = apply_palette256(subtile)
+                
                 subtile.save(buff, format)
                 body = buff.getvalue()
 
@@ -617,7 +621,7 @@ class Layer:
         """ Optional arguments are added to self.jpeg_options for pickup when saving.
         
             More information about options:
-                http://www.pythonware.com/library/pil/handbook/format-jpeg.htm
+                http://effbot.org/imagingbook/format-jpeg.htm
         """
         if quality is not None:
             self.jpeg_options['quality'] = int(quality)
@@ -628,14 +632,14 @@ class Layer:
         if progressive is not None:
             self.jpeg_options['progressive'] = bool(progressive)
 
-    def setSaveOptionsPNG(self, optimize=None, palette=None):
+    def setSaveOptionsPNG(self, optimize=None, palette=None, palette256=None):
         """ Optional arguments are added to self.png_options for pickup when saving.
         
             Palette argument is a URL relative to the configuration file,
             and it implies bits and optional transparency options.
         
             More information about options:
-                http://www.pythonware.com/library/pil/handbook/format-png.htm
+                http://effbot.org/imagingbook/format-png.htm
         """
         if optimize is not None:
             self.png_options['optimize'] = bool(optimize)
@@ -648,6 +652,11 @@ class Layer:
             
             if t_index is not None:
                 self.png_options['transparency'] = t_index
+
+        if palette256 is not None:
+            self.palette256 = bool(palette256)
+        else:
+            self.palette256 = None
 
 class KnownUnknown(Exception):
     """ There are known unknowns. That is to say, there are things that we now know we don't know.
