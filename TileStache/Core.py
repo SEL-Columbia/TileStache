@@ -73,6 +73,9 @@ configuration file as a dictionary:
   through to PIL: http://effbot.org/imagingbook/format-jpeg.htm.
 - "png options" is an optional dictionary of PNG creation options, passed
   through to PIL: http://effbot.org/imagingbook/format-png.htm.
+- "pixel effect" is an optional dictionary that defines an effect to be applied
+   for all tiles of this layer. Pixel effect can be any of these: blackwhite,
+  greyscale, desaturate, pixelate, halftone, or blur.
 
 The public-facing URL of a single tile for this layer might look like this:
 
@@ -91,6 +94,13 @@ Sample PNG creation options:
     {
       "optimize": true,
       "palette": "filename.act"
+    }
+
+Sample pixel effect:
+
+    {
+        "name": "desaturate",
+        "factor": 0.85
     }
 
 Sample bounds:
@@ -162,22 +172,20 @@ def _addRecentTile(layer, coord, format, body, age=300):
     logging.debug('TileStache.Core._addRecentTile() added tile to recent tiles: %s', key)
     
     # now look at the oldest keys and remove them if needed
-    for (key, due_by) in _recent_tiles['list']:
+    cutoff = 0
+    for i, (key, due_by) in enumerate(_recent_tiles['list']):
         # new enough?
         if time() < due_by:
+            cutoff = i
             break
         
         logging.debug('TileStache.Core._addRecentTile() removed tile from recent tiles: %s', key)
         
         try:
-            _recent_tiles['list'].remove((key, due_by))
-        except ValueError:
-            pass
-        
-        try:
             del _recent_tiles['hash'][key]
         except KeyError:
             pass
+    del _recent_tiles['list'][:cutoff]
 
 def _getRecentTile(layer, coord, format):
     """ Return the body of a recent tile, or None if it's not there.
@@ -334,6 +342,7 @@ class Layer:
         self.bitmap_palette = None
         self.jpeg_options = {}
         self.png_options = {}
+        self.pixel_effect = None
 
     def name(self):
         """ Figure out what I'm called, return a name if there is one.
@@ -416,6 +425,7 @@ class Layer:
                     except NoTileLeftBehind, e:
                         tile = e.tile
                         save = False
+                        status_code = 404
 
                     if not self.write_cache:
                         save = False
@@ -468,7 +478,7 @@ class Layer:
             are mutually exclusive options
         """
         if self.bounds and self.bounds.excludes(coord):
-            raise NoTileLeftBehind(Image.new('RGB', (self.dim, self.dim), (0x99, 0x99, 0x99)))
+            raise NoTileLeftBehind(Image.new('RGBA', (self.dim, self.dim), (0, 0, 0, 0)))
         
         srs = self.projection.srs
         xmin, ymin, xmax, ymax = self.envelope(coord)
@@ -517,6 +527,18 @@ class Layer:
             if format.lower() == 'png':
                 t_index = self.png_options.get('transparency', None)
                 tile = apply_palette(tile, self.bitmap_palette, t_index)
+
+        if self.pixel_effect:
+            # this is where we apply the pixel effect if there is one
+
+            if pass_through:
+                raise KnownUnknown(
+                    'Cannot apply pixel effect in pass_through mode'
+                )
+
+            # if tile is an image
+            if format.lower() in ('png', 'jpeg', 'tiff', 'bmp', 'gif'):
+                tile = self.pixel_effect.apply(tile)
         
         if self.doMetatile():
             # tile will be set again later
